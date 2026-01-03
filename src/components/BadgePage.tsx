@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Download, Upload, Copy as CopyIcon, CheckCircle, Save } from 'lucide-react';
+import { Download, Upload, Copy as CopyIcon, CheckCircle, Save, Edit as EditIcon, Phone } from 'lucide-react';
 import { BadgeData, RoomType } from '../types';
 import { exportElementAsPNG, generateImageBlob, copyImageToClipboard } from '../utils/imageExport';
 import Cropper from 'react-easy-crop';
@@ -13,11 +13,21 @@ interface BadgePageProps {
 
 const ROOM_TYPES: RoomType[] = ['فردي', 'ثنائي', 'ثلاثي', 'رباعي', 'خماسي'];
 
+const DEFAULT_MOROCCO_PHONE = '+212638248138';
+const DEFAULT_SAUDI_PHONE = '00966549724478';
+
 export default function BadgePage({ initialData, onUpdateData }: BadgePageProps) {
   const [badgeData, setBadgeData] = useState<BadgeData>(initialData);
   const [isExporting, setIsExporting] = useState(false);
   const [isCopying, setIsCopying] = useState(false);
   const [showCopySuccess, setShowCopySuccess] = useState(false);
+
+  // Phone Editing State
+  const [showPhoneModal, setShowPhoneModal] = useState(false);
+  const [editPhones, setEditPhones] = useState({
+    morocco: DEFAULT_MOROCCO_PHONE,
+    saudi: DEFAULT_SAUDI_PHONE
+  });
 
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
@@ -66,8 +76,43 @@ export default function BadgePage({ initialData, onUpdateData }: BadgePageProps)
   }, [medinaHotels]);
 
   useEffect(() => {
+    localStorage.setItem('medinaHotels', JSON.stringify(medinaHotels));
+  }, [medinaHotels]);
+
+  useEffect(() => {
     localStorage.setItem('meccaHotels', JSON.stringify(meccaHotels));
   }, [meccaHotels]);
+
+  // Load saved phones on mount
+  useEffect(() => {
+    const savedMorocco = localStorage.getItem('savedMoroccoPhone');
+    const savedSaudi = localStorage.getItem('savedSaudiPhone');
+
+    const initialMorocco = savedMorocco || DEFAULT_MOROCCO_PHONE;
+    const initialSaudi = savedSaudi || DEFAULT_SAUDI_PHONE;
+
+    setEditPhones({
+      morocco: initialMorocco,
+      saudi: initialSaudi
+    });
+
+    setBadgeData(prev => ({
+      ...prev,
+      moroccoPhone: initialMorocco,
+      saudiPhone: initialSaudi
+    }));
+  }, []);
+
+  const savePhones = () => {
+    localStorage.setItem('savedMoroccoPhone', editPhones.morocco);
+    localStorage.setItem('savedSaudiPhone', editPhones.saudi);
+    setBadgeData(prev => ({
+      ...prev,
+      moroccoPhone: editPhones.morocco,
+      saudiPhone: editPhones.saudi
+    }));
+    setShowPhoneModal(false);
+  };
 
   useEffect(() => {
     setBadgeData((prev) => ({
@@ -130,6 +175,47 @@ export default function BadgePage({ initialData, onUpdateData }: BadgePageProps)
     <div className="space-y-6">
       <div className="bg-white rounded-lg shadow-md p-6">
         <h2 className="text-2xl font-bold text-gray-800 mb-6">إنشاء بادج العميل</h2>
+
+        {/* Phone Edit Modal */}
+        {showPhoneModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden">
+              <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+                <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                  <Phone className="w-5 h-5 text-blue-600" />
+                  تعديل أرقام الهاتف
+                </h3>
+                <button onClick={() => setShowPhoneModal(false)} className="text-gray-500 hover:text-gray-700">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">رقم المغرب</label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 border rounded-lg dir-ltr text-left"
+                    value={editPhones.morocco}
+                    onChange={e => setEditPhones(p => ({ ...p, morocco: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">رقم السعودية</label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 border rounded-lg dir-ltr text-left"
+                    value={editPhones.saudi}
+                    onChange={e => setEditPhones(p => ({ ...p, saudi: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
+                <button onClick={() => setShowPhoneModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg">إلغاء</button>
+                <button onClick={savePhones} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">حفظ التغييرات</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid md:grid-cols-2 gap-6">
           <datalist id="medina-hotels">
@@ -407,15 +493,25 @@ export default function BadgePage({ initialData, onUpdateData }: BadgePageProps)
                     </div>
                   </div>
 
-                  <div className="border-t border-gray-200 pt-1.5 text-center absolute bottom-2 left-0 right-0 w-full px-4">
+                  <div className="border-t border-gray-200 pt-1.5 text-center absolute bottom-2 left-0 right-0 w-full px-4 group/footer relative">
+                    {/* Phone Edit Icon - Invisible on export */}
+                    <button
+                      data-ignore-export="true"
+                      onClick={() => setShowPhoneModal(true)}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors opacity-0 group-hover/footer:opacity-100"
+                      title="تعديل الأرقام"
+                    >
+                      <EditIcon className="w-3 h-3" />
+                    </button>
+
                     <div className="flex flex-col items-center gap-1">
                       <div className="flex items-center gap-1.5 justify-center">
                         <span className="text-[10px] font-bold text-gray-900 dir-ltr inline-block">المغرب:</span>
-                        <span dir="ltr" className="text-[10px] font-bold text-gray-900 font-sans">+212638248138</span>
+                        <span dir="ltr" className="text-[10px] font-bold text-gray-900 font-sans">{badgeData.moroccoPhone || DEFAULT_MOROCCO_PHONE}</span>
                       </div>
                       <div className="flex items-center gap-1.5 justify-center">
                         <span className="text-[10px] font-bold text-gray-900 dir-ltr inline-block">السعودية:</span>
-                        <span dir="ltr" className="text-[10px] font-bold text-gray-900 font-sans">00966549724478</span>
+                        <span dir="ltr" className="text-[10px] font-bold text-gray-900 font-sans">{badgeData.saudiPhone || DEFAULT_SAUDI_PHONE}</span>
                       </div>
                     </div>
                   </div>

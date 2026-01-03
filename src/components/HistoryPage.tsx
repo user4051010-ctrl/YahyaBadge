@@ -16,6 +16,7 @@ export default function HistoryPage({ data, onClientDeleted, onClearHistory, onC
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [checkedClients, setCheckedClients] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     // If data is provided (even if empty array), use it and don't fetch
@@ -144,6 +145,18 @@ export default function HistoryPage({ data, onClientDeleted, onClearHistory, onC
     }
   };
 
+  const toggleCheckbox = (clientId: string) => {
+    setCheckedClients(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(clientId)) {
+        newSet.delete(clientId);
+      } else {
+        newSet.add(clientId);
+      }
+      return newSet;
+    });
+  };
+
   const filteredClients = clients.filter(
     (client) =>
       (client.fullname?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
@@ -200,10 +213,30 @@ export default function HistoryPage({ data, onClientDeleted, onClearHistory, onC
             {filteredClients.map((client) => (
               <div
                 key={client.id}
-                onClick={() => setSelectedClient(client)}
-                className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-all flex items-center justify-between group cursor-pointer hover:bg-blue-50"
+                className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-all flex items-center justify-between group"
               >
-                {/* Left Actions (Icons) */}
+                {/* Left: Checkbox */}
+                <div className="flex items-center gap-4">
+                  <input
+                    type="checkbox"
+                    checked={checkedClients.has(client.id)}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      toggleCheckbox(client.id);
+                    }}
+                    className="w-5 h-5 text-green-500 rounded border-gray-300 focus:ring-green-500 cursor-pointer"
+                  />
+                </div>
+
+                {/* Middle: Client Name */}
+                <div
+                  className="text-right flex-1 cursor-pointer"
+                  onClick={() => setSelectedClient(client)}
+                >
+                  <h3 className="text-lg font-bold text-gray-800 select-none">{client.fullname || 'بدون اسم'}</h3>
+                </div>
+
+                {/* Right: Action Buttons */}
                 <div className="flex items-center gap-3">
                   <button
                     onClick={(e) => {
@@ -229,11 +262,6 @@ export default function HistoryPage({ data, onClientDeleted, onClearHistory, onC
                   >
                     <Trash2 className="w-5 h-5" />
                   </button>
-                </div>
-
-                {/* Right Content (Name) */}
-                <div className="text-right flex-1">
-                  <h3 className="text-lg font-bold text-gray-800 select-none">{client.fullname || 'بدون اسم'}</h3>
                 </div>
               </div>
             ))}

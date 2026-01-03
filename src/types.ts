@@ -15,6 +15,8 @@ export interface BadgeData extends VisaData {
   meccaHotel: string;
   roomType: string;
   email?: string;
+  moroccoPhone?: string;
+  saudiPhone?: string;
 }
 
 export type RoomType = 'فردي' | 'ثنائي' | 'ثلاثي' | 'رباعي' | 'خماسي';

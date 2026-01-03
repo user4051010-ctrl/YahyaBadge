@@ -5,6 +5,221 @@ import { VisaData } from '../types';
 // Set worker source for PDF.js - Using mjs for v5+ compatibility
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
+// Document type detection
+const detectDocumentType = (text: string): 'visa' | 'passport' => {
+  // Check for MRZ pattern (passport indicator)
+
+  // Check for MRZ pattern (passport indicator)
+  const hasMRZ = /P<[A-Z]{3}/.test(text) || /[A-Z0-9]{9}[A-Z]{3}[0-9]{7}/.test(text);
+
+  // Check for passport-specific keywords
+  const hasPassportKeywords = /passport|passeport|جواز\s*سفر|royaume|kingdom/i.test(text);
+
+  // Check for visa-specific keywords
+  const hasVisaKeywords = /visa|تأشيرة|entry|umrah|hajj/i.test(text);
+
+  if (hasMRZ || hasPassportKeywords) {
+    return 'passport';
+  }
+  if (hasVisaKeywords) {
+    return 'visa';
+  }
+
+  // Default to visa if uncertain
+  return 'visa';
+};
+
+// Parse MRZ (Machine Readable Zone) from passport
+interface MRZData {
+  passportNumber: string;
+  dateOfBirth: string;
+  expiryDate: string;
+  nationality: string;
+  sex: string;
+  lastName: string;
+  firstName: string;
+}
+
+const parseMRZ = (text: string): MRZData | null => {
+  try {
+    // Look for MRZ pattern - 2 lines, 44 characters each
+    // Line 1: P<COUNTRY_CODE_LASTNAME<<FIRSTNAME<<<<<<...
+    // Line 2: PASSPORT_NO_COUNTRY_DATE_SEX_EXPIRY...
+
+    const lines = text.split('\n').map(l => l.trim());
+    let mrzLine1 = '';
+    let mrzLine2 = '';
+
+    // Find MRZ lines
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].replace(/\s/g, '');
+      // Line 1 starts with P<
+      if (/^P<[A-Z]{3}/.test(line) && line.length >= 40) {
+        mrzLine1 = line;
+        if (i + 1 < lines.length) {
+          mrzLine2 = lines[i + 1].replace(/\s/g, '');
+        }
+        break;
+      }
+      // Sometimes OCR might miss P<, look for pattern
+      if (/^[A-Z]{9,}[A-Z]{3}[0-9]{7}/.test(line) && line.length >= 40) {
+        mrzLine2 = line;
+        if (i > 0) {
+          mrzLine1 = lines[i - 1].replace(/\s/g, '');
+        }
+        break;
+      }
+    }
+
+    if (!mrzLine1 || !mrzLine2) {
+      console.log('MRZ lines not found in text');
+      return null;
+    }
+
+    console.log('MRZ Line 1:', mrzLine1);
+    console.log('MRZ Line 2:', mrzLine2);
+
+    // Parse line 1 for name
+    // Format: P<COUNTRYCODE_LASTNAME<<FIRSTNAME<<<<<...
+    const namePart = mrzLine1.substring(5); // Skip P<MAR or similar
+    const nameParts = namePart.split('<<');
+    const lastName = nameParts[0]?.replace(/</g, ' ').trim() || '';
+    const firstName = nameParts[1]?.replace(/</g, ' ').trim() || '';
+
+    // Parse line 2
+    // Positions: 0-8: Passport number, 10-12: Nationality, 13-19: DOB (YYMMDD+check), 20: Sex, 21-27: Expiry
+    const passportNumber = mrzLine2.substring(0, 9).replace(/</g, '').trim();
+    const nationality = mrzLine2.substring(10, 13);
+    const dobRaw = mrzLine2.substring(13, 19); // YYMMDD
+    const sex = mrzLine2.substring(20, 21);
+    const expiryRaw = mrzLine2.substring(21, 27); // YYMMDD
+
+    // Convert YYMMDD to DD/MM/YYYY
+    const convertDate = (yymmdd: string): string => {
+      if (yymmdd.length !== 6) return '';
+      const yy = parseInt(yymmdd.substring(0, 2));
+      const mm = yymmdd.substring(2, 4);
+      const dd = yymmdd.substring(4, 6);
+      // Assume 1900s if > 50, otherwise 2000s
+      const yyyy = yy > 50 ? `19${yy}` : `20${yy}`;
+      return `${dd}/${mm}/${yyyy}`;
+    };
+
+    const dateOfBirth = convertDate(dobRaw);
+    const expiryDate = convertDate(expiryRaw);
+
+    return {
+      passportNumber,
+      dateOfBirth,
+      expiryDate,
+      nationality,
+      sex,
+      lastName,
+      firstName
+    };
+  } catch (error) {
+    console.error('MRZ parsing error:', error);
+    return null;
+  }
+};
+
+// Extract Arabic name from passport bio page
+const extractArabicNameFromPassport = (text: string): string => {
+  const lines = text.split('\n');
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Must contain Arabic characters
+    if (!/[\u0600-\u06FF]/.test(trimmed)) continue;
+
+    // Skip common headers and labels
+    if (/المملكة|العربية|المغربية|السعودية|وزارة|الخارجية|تأشيرة|زيارة|مرور|جواز|تاريخ|الجنسية|المهنة|صاحب|العمل|الاسم|الميلاد|الإصدار|الصلاحية|رقم/.test(trimmed)) continue;
+    if (/^(PASSPORT|PASSEPORT|KINGDOM|ROYAUME|MAROC|MOROCCO|MAR)/i.test(trimmed)) continue;
+
+    // Clean the candidate
+    let candidate = trimmed
+      .replace(/Name|الاسم|Full|Applicant/gi, '')
+      .replace(/[:\-\.،]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // Remove English words mixed with Arabic
+    candidate = candidate.replace(/\b[A-Z][a-z]+\b/g, '').trim();
+    candidate = candidate.replace(/\d+/g, '').trim();
+
+    // Valid candidate should have 2+ words and be between 5-50 characters
+    const words = candidate.split(' ').filter(w => w.length > 0);
+    if (words.length >= 2 && candidate.length >= 5 && candidate.length < 50) {
+      // Extra validation: ensure it's primarily Arabic
+      const arabicChars = (candidate.match(/[\u0600-\u06FF]/g) || []).length;
+      const totalChars = candidate.replace(/\s/g, '').length;
+
+      if (arabicChars / totalChars > 0.7) {
+        console.log('Found Arabic name from passport:', candidate);
+        return candidate;
+      }
+    }
+  }
+
+  return '';
+};
+
+// Extract passport-specific data
+const extractPassportData = (text: string, mrzData: MRZData | null): Partial<VisaData> & { arabicName?: string } => {
+  const data: Partial<VisaData> & { arabicName?: string } = {};
+
+  if (mrzData) {
+    // Use MRZ data as primary source
+    data.passportNumber = mrzData.passportNumber;
+    data.birthDate = mrzData.dateOfBirth;
+  } else {
+    // Fallback to pattern matching if MRZ parsing failed
+    data.passportNumber = extractPassportNumberFromPassport(text);
+    data.birthDate = extractBirthDateFromPassport(text);
+  }
+
+  // Extract Arabic name from passport bio page
+  const arabicName = extractArabicNameFromPassport(text);
+  if (arabicName) {
+    data.arabicName = arabicName;
+  }
+
+  return data;
+};
+
+// Extract passport number from passport bio page (fallback)
+const extractPassportNumberFromPassport = (text: string): string => {
+  const patterns = [
+    /(?:Passport|Passeport|N°\s*de\s*Passeport|رقم\s*الجواز)[:\s]+([A-Z]{2}[0-9]{7,9})/i,
+    /\b([A-Z]{2}[0-9]{7,9})\b/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+  return '';
+};
+
+// Extract birth date from passport bio page (fallback)
+const extractBirthDateFromPassport = (text: string): string => {
+  const patterns = [
+    /(?:Date\s*of\s*birth|Date\s*de\s*naissance|تاريخ\s*الميلاد)[:\s]+([0-9]{2}[\/\-][0-9]{2}[\/\-][0-9]{4})/i,
+    /\b([0-9]{2}[\/\-][0-9]{2}[\/\-][0-9]{4})\b/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      return match[1].replace(/-/g, '/');
+    }
+  }
+  return '';
+};
+
 export const extractVisaData = async (file: File, convertedImage?: File): Promise<VisaData> => {
   try {
     let imageToProcess: string | File = file;
@@ -23,6 +238,20 @@ export const extractVisaData = async (file: File, convertedImage?: File): Promis
     });
 
     const text = result.data.text;
+    console.log('Extracted OCR text:', text);
+
+    // Detect document type
+    const docType = detectDocumentType(text);
+    console.log('Detected document type:', docType);
+
+    // Parse MRZ if it's a passport
+    let mrzData: MRZData | null = null;
+    if (docType === 'passport') {
+      mrzData = parseMRZ(text);
+      console.log('MRZ Data:', mrzData);
+    }
+
+    // Extract name (works for both visa and passport)
     const extractedArabicName = extractName(text);
 
     // Extract profile photo
@@ -33,14 +262,35 @@ export const extractVisaData = async (file: File, convertedImage?: File): Promis
 
     const profilePhoto = await extractProfilePhoto(photoSource);
 
-    const visaData: VisaData = {
-      fullName: extractedArabicName,
-      email: generateEmail(text, extractedArabicName),
-      passportNumber: extractPassportNumber(text),
-      visaNumber: extractVisaNumber(text),
-      birthDate: extractBirthDate(text),
-      clientPhoto: profilePhoto,
-    };
+    // Build visa data based on document type
+    let visaData: VisaData;
+
+    if (docType === 'passport' && mrzData) {
+      // Use passport extraction with MRZ data
+      const passportData = extractPassportData(text, mrzData);
+
+      // Priority: Use Arabic name from passport if available, otherwise use extracted name, otherwise use MRZ name
+      const finalFullName = passportData.arabicName || extractedArabicName || `${mrzData.firstName} ${mrzData.lastName}`;
+
+      visaData = {
+        fullName: finalFullName,
+        email: generateEmailFromPassport(mrzData, finalFullName),
+        passportNumber: passportData.passportNumber || '',
+        visaNumber: '', // Passports don't have visa numbers
+        birthDate: passportData.birthDate || '',
+        clientPhoto: profilePhoto,
+      };
+    } else {
+      // Use standard visa extraction
+      visaData = {
+        fullName: extractedArabicName,
+        email: generateEmail(text, extractedArabicName),
+        passportNumber: extractPassportNumber(text),
+        visaNumber: extractVisaNumber(text),
+        birthDate: extractBirthDate(text),
+        clientPhoto: profilePhoto,
+      };
+    }
 
     return visaData;
   } catch (error) {
@@ -304,6 +554,41 @@ const transliterateArabic = (arabicText: string): string => {
     }
   }
   return result;
+};
+
+// Generate email from passport MRZ data
+// Pattern: latinLastName + first3LettersOfFirstName@comfythings.com
+const generateEmailFromPassport = (mrzData: MRZData, detectedArabicName: string): string => {
+  // Try to use MRZ data first (most reliable for passports)
+  if (mrzData && mrzData.lastName && mrzData.firstName) {
+    const lastName = mrzData.lastName.toLowerCase().replace(/\s+/g, '');
+    const firstName = mrzData.firstName.toLowerCase().replace(/\s+/g, '');
+
+    // Get first 3 letters of first name
+    const firstNamePrefix = firstName.substring(0, 3);
+
+    const emailPrefix = lastName + firstNamePrefix;
+    return `${emailPrefix}@comfythings.com`;
+  }
+
+  // Fallback to standard email generation if MRZ parsing failed
+  // This uses the existing generateEmail function logic
+  if (detectedArabicName && /[\u0600-\u06FF]/.test(detectedArabicName)) {
+    const latinName = transliterateArabic(detectedArabicName);
+    const parts = latinName.trim().split(/\s+/);
+
+    if (parts.length >= 2) {
+      // For passport fallback, assume last part is last name
+      const lastName = parts[parts.length - 1].toLowerCase();
+      const firstName = parts[0].toLowerCase();
+      const firstNamePrefix = firstName.substring(0, 3);
+
+      const emailPrefix = lastName + firstNamePrefix;
+      return `${emailPrefix}@comfythings.com`;
+    }
+  }
+
+  return '';
 };
 
 const generateEmail = (text: string, detectedArabicName: string): string => {

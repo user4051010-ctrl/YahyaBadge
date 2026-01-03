@@ -177,7 +177,7 @@ export default function OCRPage({ onDataExtracted, onClientSaved, initialData, i
       <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
         <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
           <FileText className="w-6 h-6 text-blue-600" />
-          استخراج المعلومات من التأشيرة
+          استخراج المعلومات من الوثيقة
         </h2>
 
         {!imagePreview ? (
@@ -196,7 +196,7 @@ export default function OCRPage({ onDataExtracted, onClientSaved, initialData, i
                 <Upload className={`w-8 h-8 text-blue-500 ${isProcessing ? 'animate-bounce' : ''}`} />
               </div>
               <p className="text-lg font-medium text-gray-700">
-                {isProcessing ? 'جاري المعالجة...' : 'اضغط لرفع صورة التأشيرة أو ملف PDF'}
+                {isProcessing ? 'جاري المعالجة...' : 'اضغط لرفع صورة التأشيرة أو جواز السفر أو ملف PDF'}
               </p>
               <p className="text-sm text-gray-500 mt-2">
                 أو قم بسحب وإفلات الملف هنا
@@ -219,7 +219,7 @@ export default function OCRPage({ onDataExtracted, onClientSaved, initialData, i
                   <img src={imagePreview} className="w-full h-full object-cover" alt="Thumbnail" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-gray-700">تم رفع صورة التأشيرة</p>
+                  <p className="text-sm font-medium text-gray-700">تم رفع صورة الوثيقة</p>
                   <button
                     onClick={() => setShowFullImage(!showFullImage)}
                     className="text-blue-600 text-xs hover:underline flex items-center gap-1"

@@ -27,6 +27,10 @@ export const exportElementAsPNG = async (
     // Copy direction from original to ensure correct text alignment
     clone.dir = element.getAttribute('dir') || 'rtl';
 
+    // Remove excluded elements based on data attribute
+    const elementsToIgnore = clone.querySelectorAll('[data-ignore-export="true"]');
+    elementsToIgnore.forEach(el => el.remove());
+
     document.body.appendChild(clone);
 
     // Wait for images to load in the clone
@@ -38,7 +42,7 @@ export const exportElementAsPNG = async (
       logging: false,
       useCORS: true,
       allowTaint: true,
-      onclone: (document, element) => {
+      onclone: (_, element) => {
         // ensuring everything is visible
         element.style.display = 'block';
         element.style.visibility = 'visible';
@@ -99,6 +103,10 @@ export const generateImageBlob = async (
         }
       });
     }
+
+    // Remove elements with data-ignore-export attribute
+    const elementsToIgnore = clone.querySelectorAll('[data-ignore-export="true"]');
+    elementsToIgnore.forEach(el => el.remove());
 
     document.body.appendChild(clone);
 
